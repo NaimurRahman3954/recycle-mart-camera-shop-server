@@ -2,8 +2,9 @@ const express = require('express')
 const jwt = require('jsonwebtoken')
 const cors = require('cors')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
-require('dotenv').config()
 const port = process.env.PORT || 8000
+require('dotenv').config()
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 
 const app = express()
 
@@ -53,6 +54,7 @@ async function run() {
     const wishlistsCollection = client.db('RecycleMart').collection('wishlists')
     const usersCollection = client.db('RecycleMart').collection('users')
     const productsCollection = client.db('RecycleMart').collection('products')
+    const paymentsCollection = client.db('RecycleMart').collection('payments')
 
     const verifyAdmin = async (req, res, next) => {
       const decodedEmail = req.decoded.email
@@ -86,7 +88,8 @@ async function run() {
     //   res.send(bookings)
     // })
 
-    app.get('/bookings', verifyJWT, verifyAdmin, async (req, res) => {
+    // 🛑 403 dekhacche
+    app.get('/bookings', verifyJWT, async (req, res) => {
       const email = req.query.email
       const decodedEmail = req.decoded.email
       console.log(decodedEmail)
@@ -122,6 +125,13 @@ async function run() {
       res.send(result)
     })
 
+    app.get('/bookings/:id', async (req, res) => {
+      const id = req.params.id
+      const query = { _id: ObjectId(id) }
+      const booking = await bookingsCollection.findOne(query)
+      res.send(booking)
+    })
+
     app.get('/wishlists', async (req, res) => {
       const email = req.query.email
       const query = { email: email }
@@ -136,10 +146,44 @@ async function run() {
       res.send(result)
     })
 
+    app.post('/create-payment-intent', async (req, res) => {
+      const booking = req.body
+      const price = booking.price
+      const amount = price * 100
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        currency: 'bdt',
+        amount: amount,
+        payment_method_types: ['card'],
+      })
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      })
+    })
+
+    app.post('/payments', async (req, res) => {
+      const payment = req.body
+      const result = await paymentsCollection.insertOne(payment)
+      const id = payment.bookingId
+      const filter = { _id: ObjectId(id) }
+      const updatedDoc = {
+        $set: {
+          paid: true,
+          transactionId: payment.transactionId,
+        },
+      }
+      const updatedResult = await bookingsCollection.updateOne(
+        filter,
+        updatedDoc
+      )
+      res.send(result)
+    })
+
     app.get('/jwt', async (req, res) => {
       const email = req.query.email
       const query = { email: email }
       const user = await usersCollection.findOne(query)
+      // console.log(user)
       if (user) {
         const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
           expiresIn: '1d',
@@ -195,6 +239,7 @@ async function run() {
       res.send(result)
     })
 
+    // 🛑 verifyJWT, verifyAdmin remove korle 403 dekhacche na
     app.get('/products', verifyJWT, verifyAdmin, async (req, res) => {
       const query = {}
       const products = await productsCollection.find(query).toArray()
