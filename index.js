@@ -52,6 +52,18 @@ async function run() {
     const bookingsCollection = client.db('RecycleMart').collection('bookings')
     const wishlistsCollection = client.db('RecycleMart').collection('wishlists')
     const usersCollection = client.db('RecycleMart').collection('users')
+    const productsCollection = client.db('RecycleMart').collection('products')
+
+    const verifyAdmin = async (req, res, next) => {
+      const decodedEmail = req.decoded.email
+      const query = { email: decodedEmail }
+      const user = await usersCollection.findOne(query)
+
+      if (user?.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+      next()
+    }
 
     app.get('/categories', async (req, res) => {
       const cursor = categoriesCollection.find({})
@@ -66,7 +78,7 @@ async function run() {
       res.send(category)
     })
 
-    // app.get('/bookings', verifyJWT, async (req, res) => {
+    // app.get('/bookings', verifyJWT, verifyAdmin, async (req, res) => {
     //   const email = req.query.email
     //   const query = { email: email }
     //   const cursor = bookingsCollection.find(query)
@@ -74,12 +86,15 @@ async function run() {
     //   res.send(bookings)
     // })
 
-    app.get('/bookings', verifyJWT, async (req, res) => {
+    app.get('/bookings', verifyJWT, verifyAdmin, async (req, res) => {
       const email = req.query.email
       const decodedEmail = req.decoded.email
+      console.log(decodedEmail)
 
       if (email !== decodedEmail) {
-        return res.status(403).send({ message: 'forbidden access' })
+        return res
+          .status(403)
+          .send({ message: 'forbidden access', decodedEmail })
       }
 
       const query = { email: email }
@@ -127,7 +142,7 @@ async function run() {
       const user = await usersCollection.findOne(query)
       if (user) {
         const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
-          expiresIn: '1h',
+          expiresIn: '1d',
         })
         return res.send({ accessToken: token })
       }
@@ -154,34 +169,7 @@ async function run() {
       res.send({ isAdmin: user?.role === 'admin' })
     })
 
-    // -----------
-    // app.put('/users/admin/:id', verifyJWT, async (req, res) => {
-    //   const decodedEmail = req.decoded.email
-    //   const query = { email: decodedEmail }
-    //   const user = await usersCollection.findOne(query)
-
-    //   if (user?.role !== 'admin') {
-    //     return res.status(403).send({ message: 'forbidden access' })
-    //   }
-
-    //   const id = req.params.id
-    //   const filter = { _id: ObjectId(id) }
-    //   const options = { upsert: true }
-    //   const updatedDoc = {
-    //     $set: {
-    //       role: 'admin',
-    //     },
-    //   }
-    //   const result = await usersCollection.updateOne(
-    //     filter,
-    //     updatedDoc,
-    //     options
-    //   )
-    //   res.send(result)
-    // })
-    // -------------
-
-    app.put('/users/admin/:id', verifyJWT, async (req, res) => {
+    app.put('/users/admin/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const decodedEmail = req.decoded.email
       const query = { email: decodedEmail }
       console.log(query)
@@ -204,6 +192,25 @@ async function run() {
         updatedDoc,
         options
       )
+      res.send(result)
+    })
+
+    app.get('/products', verifyJWT, verifyAdmin, async (req, res) => {
+      const query = {}
+      const products = await productsCollection.find(query).toArray()
+      res.send(products)
+    })
+
+    app.post('/products', verifyJWT, verifyAdmin, async (req, res) => {
+      const product = req.body
+      const result = await productsCollection.insertOne(product)
+      res.send(result)
+    })
+
+    app.delete('/products/:id', verifyJWT, verifyAdmin, async (req, res) => {
+      const id = req.params.id
+      const filter = { _id: ObjectId(id) }
+      const result = await productsCollection.deleteOne(filter)
       res.send(result)
     })
   } finally {
