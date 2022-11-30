@@ -9,7 +9,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const app = express()
 
 //middleware
-// app.use(cors())
+
 const corsConfig = {
   origin: '*',
   credentials: true,
@@ -29,7 +29,6 @@ const client = new MongoClient(uri, {
 })
 
 function verifyJWT(req, res, next) {
-  // console.log('token inside JTW', req.headers.authorization)
   const authHeader = req.headers.authorization
 
   if (!authHeader) {
