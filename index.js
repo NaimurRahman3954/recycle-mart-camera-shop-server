@@ -1,6 +1,6 @@
 const express = require('express')
-const jwt = require('jsonwebtoken')
 const cors = require('cors')
+const jwt = require('jsonwebtoken')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 const port = process.env.PORT || 8000
 require('dotenv').config()
@@ -11,10 +11,6 @@ const app = express()
 //middleware
 app.use(cors())
 app.use(express.json())
-
-app.get('/', async (req, res) => {
-  res.send("Doctor's Portal Node Server is running")
-})
 
 // mongoDB-----------
 
@@ -27,7 +23,7 @@ const client = new MongoClient(uri, {
 })
 
 function verifyJWT(req, res, next) {
-  // console.log('token inside JTW', req.headers.authorization)
+  console.log('token inside JTW', req.headers.authorization)
   const authHeader = req.headers.authorization
 
   if (!authHeader) {
@@ -80,19 +76,9 @@ async function run() {
       res.send(category)
     })
 
-    // app.get('/bookings', verifyJWT, verifyAdmin, async (req, res) => {
-    //   const email = req.query.email
-    //   const query = { email: email }
-    //   const cursor = bookingsCollection.find(query)
-    //   const bookings = await cursor.toArray()
-    //   res.send(bookings)
-    // })
-
-    // 🛑 403 dekhacche
     app.get('/bookings', verifyJWT, async (req, res) => {
       const email = req.query.email
       const decodedEmail = req.decoded.email
-      console.log(decodedEmail)
 
       if (email !== decodedEmail) {
         return res
@@ -101,25 +87,25 @@ async function run() {
       }
 
       const query = { email: email }
-      const bookings = await bookingsCollection.find(query).toArray()
+      const cursor = bookingsCollection.find(query)
+      const bookings = await cursor.toArray()
       res.send(bookings)
     })
 
     app.post('/bookings', async (req, res) => {
       const booking = req.body
 
-      // const query = {
-      //   appointmentDate: booking.appointmentDate,
-      //   email: booking.email,
-      //   treatment: booking.treatment,
-      // }
+      const query = {
+        email: booking.email,
+        product: booking.product,
+      }
 
-      // const alreadyBooked = await bookingsCollection.find(query).toArray()
+      const alreadyBooked = await bookingsCollection.find(query).toArray()
 
-      // if (alreadyBooked.length) {
-      //   const message = `You already have a booking on ${booking.appointmentDate}`
-      //   return res.send({ acknowledged: false, message })
-      // }
+      if (alreadyBooked.length) {
+        const message = `You have already booked ${booking.product}`
+        return res.send({ acknowledged: false, message })
+      }
 
       const result = await bookingsCollection.insertOne(booking)
       res.send(result)
@@ -142,6 +128,15 @@ async function run() {
 
     app.post('/wishlists', async (req, res) => {
       const wishlist = req.body
+      const query = {
+        email: wishlist.email,
+        product: wishlist.product,
+      }
+      const alreadyAdded = await wishlistsCollection.find(query).toArray()
+      if (alreadyAdded.length) {
+        const message = `You have already added ${wishlist.product} to your wishlist`
+        return res.send({ acknowledged: false, message })
+      }
       const result = await wishlistsCollection.insertOne(wishlist)
       res.send(result)
     })
@@ -161,6 +156,7 @@ async function run() {
       })
     })
 
+    // payment API
     app.post('/payments', async (req, res) => {
       const payment = req.body
       const result = await paymentsCollection.insertOne(payment)
@@ -179,11 +175,12 @@ async function run() {
       res.send(result)
     })
 
+    // Token API
     app.get('/jwt', async (req, res) => {
       const email = req.query.email
       const query = { email: email }
       const user = await usersCollection.findOne(query)
-      // console.log(user)
+      console.log(user)
       if (user) {
         const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
           expiresIn: '1d',
@@ -199,6 +196,7 @@ async function run() {
       res.send(users)
     })
 
+    // save users in database
     app.post('/users', async (req, res) => {
       const user = req.body
       console.log(user)
@@ -213,6 +211,7 @@ async function run() {
       res.send({ isAdmin: user?.role === 'admin' })
     })
 
+    // make admin
     app.put('/users/admin/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const decodedEmail = req.decoded.email
       const query = { email: decodedEmail }
@@ -239,7 +238,33 @@ async function run() {
       res.send(result)
     })
 
-    // 🛑 verifyJWT, verifyAdmin remove korle 403 dekhacche na
+    // verify seller
+    app.put('/users/sellers/:id', verifyJWT, verifyAdmin, async (req, res) => {
+      const decodedEmail = req.decoded.email
+      const query = { email: decodedEmail }
+      console.log(query)
+      const user = await usersCollection.findOne(query)
+
+      if (user?.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+
+      const id = req.params.id
+      const filter = { _id: ObjectId(id) }
+      const options = { upsert: true }
+      const updatedDoc = {
+        $set: {
+          verified: true,
+        },
+      }
+      const result = await usersCollection.updateOne(
+        filter,
+        updatedDoc,
+        options
+      )
+      res.send(result)
+    })
+
     app.get('/products', verifyJWT, verifyAdmin, async (req, res) => {
       const query = {}
       const products = await productsCollection.find(query).toArray()
@@ -249,6 +274,24 @@ async function run() {
     app.post('/products', verifyJWT, verifyAdmin, async (req, res) => {
       const product = req.body
       const result = await productsCollection.insertOne(product)
+      res.send(result)
+    })
+
+    app.put('/products/:id', verifyJWT, verifyAdmin, async (req, res) => {
+      const id = req.params.id
+      const filter = { _id: ObjectId(id) }
+
+      const options = { upsert: true }
+      const updatedDoc = {
+        $set: {
+          advertised: true,
+        },
+      }
+      const result = await productsCollection.updateOne(
+        filter,
+        updatedDoc,
+        options
+      )
       res.send(result)
     })
 
@@ -265,6 +308,10 @@ run().catch((err) => console.error(err))
 
 // -------------------
 
+app.get('/', async (req, res) => {
+  res.send('Recycle Mart Node Server is running')
+})
+
 app.listen(port, () => {
-  console.log(`Simple node server is running on port ${port}`)
+  console.log(`Recycle Mart's node server is running on port ${port}`)
 })
